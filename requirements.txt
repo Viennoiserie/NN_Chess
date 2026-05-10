@@ -1,3 +1,7 @@
-python-chess
+onnx
 numpy
 torch
+flask
+flas-cors
+onnxruntime
+python-chess
