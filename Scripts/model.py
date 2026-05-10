@@ -13,7 +13,14 @@ class ChessCNN(nn.Module):
         self.fc1 = nn.Linear(128 * 8 * 8, 256)
         self.fc2 = nn.Linear(256, num_moves)
 
+        # Initialisation des poids pour accèlerer la convergence
+        nn.init.kaiming_uniform_(self.conv1.weight, nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.conv2.weight, nonlinearity='relu')
+        nn.init.xavier_uniform_(self.fc1.weight)
+        nn.init.xavier_uniform_(self.fc2.weight)
+
     def forward(self, x):
+
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
 
