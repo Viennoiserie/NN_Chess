@@ -336,7 +336,7 @@ async function init() {
   try {
     // Chargement parallèle du modèle ONNX et du dictionnaire de coups
     const [session, dict] = await Promise.all([
-      ort.InferenceSession.create(MODEL_URL, { executionProviders: ['webgpu', 'wasm'] }),
+      ort.InferenceSession.create(MODEL_URL, { executionProviders: ['wasm'] }),
       fetch(MOVE_TO_INT_URL).then(r => r.json())
     ]);
 
@@ -352,9 +352,10 @@ async function init() {
     setStatus('Configurez et démarrez une partie.', '');
     initBoard();
 
-  } catch (e) {
-    setStatus('Erreur de chargement du modèle.', 'over');
-    console.error(e);
+  } catch (e) {console.error("MODEL LOAD ERROR:", e);
+
+    setStatus('Erreur : ' + (e?.message || e),
+              'over');
   }
 }
 
