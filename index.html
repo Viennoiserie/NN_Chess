@@ -1,0 +1,604 @@
+<!-- AI GENERATED : I hate web dev -->
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NN Chess</title>
+
+<!-- Chess.js : logique des règles d'échecs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+<!-- Chessboard.js : affichage du plateau -->
+<link  rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+
+<!-- ONNX Runtime Web : inférence du modèle dans le navigateur -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Crimson+Pro:ital,wght@0,300;0,400;1,300&display=swap');
+
+  :root {
+    --bg:       #0d0d0d;
+    --surface:  #161616;
+    --border:   #2a2a2a;
+    --gold:     #c9a84c;
+    --gold-dim: #7a6330;
+    --text:     #d4c5a0;
+    --text-dim: #6b6050;
+    --red:      #c84b4b;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Crimson Pro', Georgia, serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+    background-image: radial-gradient(ellipse 80% 40% at 50% -5%, rgba(201,168,76,0.07), transparent 70%);
+  }
+
+  h1 {
+    font-family: 'Cinzel', serif;
+    font-weight: 900;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: 0.18em;
+    color: var(--gold);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    font-style: italic;
+    font-size: 0.95rem;
+    color: var(--text-dim);
+    margin-bottom: 28px;
+  }
+
+  .layout {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    width: 100%;
+    max-width: 900px;
+  }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px;
+    width: 220px;
+    flex-shrink: 0;
+  }
+
+  .panel-title {
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--gold-dim);
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  label {
+    display: block;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin: 14px 0 5px;
+  }
+
+  .color-toggle { display: flex; gap: 6px; }
+
+  .color-btn {
+    flex: 1;
+    padding: 7px 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s;
+  }
+
+  .color-btn.active { border-color: var(--gold); color: var(--gold); background: rgba(201,168,76,0.06); }
+
+  .temp-row { display: flex; justify-content: space-between; align-items: center; }
+  .temp-val { color: var(--gold); font-size: 0.85rem; }
+
+  input[type=range] {
+    width: 100%;
+    accent-color: var(--gold);
+    margin-top: 4px;
+  }
+
+  .btn {
+    width: 100%;
+    margin-top: 16px;
+    padding: 11px;
+    background: transparent;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-family: 'Cinzel', serif;
+    font-size: 0.68rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.2s;
+  }
+
+  .btn:hover { background: rgba(201,168,76,0.1); }
+
+  .btn-secondary {
+    border-color: var(--border);
+    color: var(--text-dim);
+    margin-top: 8px;
+  }
+
+  .btn-secondary:hover { border-color: var(--text-dim); color: var(--text); }
+
+  /* ── Board area ── */
+  .board-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+  }
+
+  #status {
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold-dim);
+    min-height: 18px;
+  }
+
+  #status.active { color: var(--gold); }
+  #status.over   { color: var(--red); }
+  #status.loading { color: var(--text-dim); }
+
+  #board-wrap { width: 480px; }
+
+  /* ── Move log ── */
+  .move-log {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px;
+    width: 180px;
+    flex-shrink: 0;
+    max-height: 540px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #moves-scroll {
+    overflow-y: auto;
+    flex: 1;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+    font-size: 0.88rem;
+  }
+
+  .move-row {
+    display: grid;
+    grid-template-columns: 24px 1fr 1fr;
+    gap: 2px;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(42,42,42,0.5);
+  }
+
+  .mn  { color: var(--text-dim); font-size: 0.72rem; }
+  .mw  { padding: 1px 3px; }
+  .mb  { padding: 1px 3px; }
+  .ai  { color: var(--gold); }
+
+  /* ── Loading overlay ── */
+  #overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(13,13,13,0.65);
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    font-family: 'Cinzel', serif;
+    font-size: 0.85rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--gold);
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  #overlay.show { display: flex; }
+
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 780px) {
+    .layout { flex-direction: column; align-items: center; }
+    .panel, .move-log { width: 100%; max-width: 480px; }
+    #board-wrap { width: 340px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>NN Chess</h1>
+<p class="subtitle">Neural Network Chess Engine — Viennoiserie</p>
+
+<div class="layout">
+
+  <!-- ── Setup Panel ── -->
+  <div class="panel">
+    <div class="panel-title">Configuration</div>
+
+    <label>Couleur</label>
+    <div class="color-toggle">
+      <button class="color-btn active" id="btn-white" onclick="setColor('white')">Blancs ♙</button>
+      <button class="color-btn"        id="btn-black" onclick="setColor('black')">Noirs ♟</button>
+    </div>
+
+    <label>
+      <div class="temp-row">
+        Température <span class="temp-val" id="temp-val">1.0</span>
+      </div>
+    </label>
+    <input type="range" id="temp" min="0.1" max="2.0" step="0.1" value="1.0"
+           oninput="document.getElementById('temp-val').textContent = parseFloat(this.value).toFixed(1)">
+
+    <button class="btn"           onclick="startGame()">▶ Nouvelle Partie</button>
+    <button class="btn btn-secondary" onclick="resetGame()">↺ Recommencer</button>
+
+    <div style="margin-top:20px; padding-top:14px; border-top:1px solid var(--border);
+                font-size:0.78rem; color:var(--text-dim); line-height:1.9;">
+      Modèle <br><span style="color:var(--text)" id="info-model">—</span><br>
+      Coups uniques <br><span style="color:var(--text)" id="info-moves">—</span>
+    </div>
+  </div>
+
+  <!-- ── Board ── -->
+  <div class="board-area">
+    <div id="status" class="loading">Chargement du modèle...</div>
+    <div id="board-wrap"></div>
+  </div>
+
+  <!-- ── Move Log ── -->
+  <div class="move-log">
+    <div class="panel-title">Coups</div>
+    <div id="moves-scroll"></div>
+  </div>
+
+</div>
+
+<div id="overlay">
+  <div class="spinner"></div>
+  Réflexion en cours...
+</div>
+
+<script>
+// ════════════════════════════════════════════
+// Configuration
+// ════════════════════════════════════════════
+
+const MODEL_URL       = 'web/model.onnx';
+const MOVE_TO_INT_URL = 'web/move_to_int.json';
+const TEMPERATURE     = () => parseFloat(document.getElementById('temp').value);
+
+// ════════════════════════════════════════════
+// State
+// ════════════════════════════════════════════
+
+let ortSession  = null;
+let moveToInt   = null;
+let intToMove   = null;
+let game        = null;
+let board       = null;
+let humanColor  = 'white';
+let moveHistory = [];
+let gameStarted = false;
+let modelReady  = false;
+
+// ════════════════════════════════════════════
+// Init : chargement modèle + dictionnaire
+// ════════════════════════════════════════════
+
+async function init() {
+  setStatus('Chargement du modèle...', 'loading');
+  try {
+    // Chargement parallèle du modèle ONNX et du dictionnaire de coups
+    const [session, dict] = await Promise.all([
+      ort.InferenceSession.create(MODEL_URL, { executionProviders: ['webgpu', 'wasm'] }),
+      fetch(MOVE_TO_INT_URL).then(r => r.json())
+    ]);
+
+    ortSession = session;
+    moveToInt  = dict;
+    intToMove  = Object.fromEntries(Object.entries(dict).map(([k, v]) => [v, k]));
+
+    modelReady = true;
+
+    document.getElementById('info-model').textContent  = 'web/model.onnx';
+    document.getElementById('info-moves').textContent  = Object.keys(dict).length;
+
+    setStatus('Configurez et démarrez une partie.', '');
+    initBoard();
+
+  } catch (e) {
+    setStatus('Erreur de chargement du modèle.', 'over');
+    console.error(e);
+  }
+}
+
+// ════════════════════════════════════════════
+// Plateau (chessboard.js)
+// ════════════════════════════════════════════
+
+function initBoard() {
+  game = new Chess();
+
+  board = Chessboard('board-wrap', {
+    draggable:     true,
+    position:      'start',
+    pieceTheme:    'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+    onDragStart:   onDragStart,
+    onDrop:        onDrop,
+    onSnapEnd:     () => board.position(game.fen()),
+  });
+}
+
+function onDragStart(source, piece) {
+  if (!gameStarted)               return false;
+  if (game.game_over())           return false;
+  if (game.turn() !== humanColor[0]) return false;
+  // Autorise uniquement les pièces de la couleur humaine
+  if (humanColor === 'white' && piece.startsWith('b')) return false;
+  if (humanColor === 'black' && piece.startsWith('w')) return false;
+}
+
+async function onDrop(source, target) {
+  // Vérifie si le coup est légal (gestion promotion automatique en dame)
+  const move = game.move({ from: source, to: target, promotion: 'q' });
+  if (move === null) return 'snapback';
+
+  addMoveToLog(move.san, 'human');
+  updateStatus();
+
+  if (!game.game_over()) {
+    await aiMove();
+  }
+}
+
+// ════════════════════════════════════════════
+// Inférence ONNX
+// ════════════════════════════════════════════
+
+function encodeBoard(chess) {
+  // Encodage du plateau en tensor (13, 8, 8) — doit correspondre à board.py
+  // 12 canaux pièces (6 types × 2 couleurs) + 1 canal tour
+  const tensor = new Float32Array(13 * 8 * 8);
+
+  const pieceIdx = { p: 0, n: 1, b: 2, r: 3, q: 4, k: 5 };
+
+  for (let rank = 0; rank < 8; rank++) {
+    for (let file = 0; file < 8; file++) {
+      const sq    = String.fromCharCode(97 + file) + (rank + 1);
+      const piece = chess.get(sq);
+      if (piece) {
+        const base    = pieceIdx[piece.type];
+        const channel = piece.color === 'w' ? base : base + 6;
+        tensor[channel * 64 + rank * 8 + file] = 1.0;
+      }
+    }
+  }
+
+  // Canal 12 : tour (1 = blancs, 0 = noirs)
+  const turnVal = chess.turn() === 'w' ? 1.0 : 0.0;
+  for (let i = 0; i < 64; i++) tensor[12 * 64 + i] = turnVal;
+
+  return tensor;
+}
+
+async function aiMove() {
+  showOverlay(true);
+
+  // Légère pause pour laisser le DOM se mettre à jour
+  await new Promise(r => setTimeout(r, 50));
+
+  const encoded = encodeBoard(game);
+  const inputTensor = new ort.Tensor('float32', encoded, [1, 13, 8, 8]);
+
+  const results = await ortSession.run({ input: inputTensor });
+  const logits  = results.output.data;
+
+  // Récupération des coups légaux connus du modèle
+  const legalMoves = game.moves({ verbose: true });
+  const legalUcis  = legalMoves.map(m => m.from + m.to + (m.promotion || ''));
+
+  const candidates = legalUcis
+    .map((uci, i) => ({ move: legalMoves[i], uci, idx: moveToInt[uci] }))
+    .filter(c => c.idx !== undefined);
+
+  let chosen;
+
+  if (candidates.length === 0) {
+    // Aucun coup connu : coup aléatoire
+    chosen = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+  } else {
+    // Application de la température et softmax sur les coups légaux connus
+    const temp    = TEMPERATURE();
+    const rawLogits = candidates.map(c => logits[c.idx] / temp);
+    const maxL    = Math.max(...rawLogits);
+    const exps    = rawLogits.map(l => Math.exp(l - maxL));
+    const sumExp  = exps.reduce((a, b) => a + b, 0);
+    const probs   = exps.map(e => e / sumExp);
+
+    // Échantillonnage selon la distribution de probabilité
+    let rand = Math.random();
+    let idx  = 0;
+    for (; idx < probs.length - 1; idx++) {
+      rand -= probs[idx];
+      if (rand <= 0) break;
+    }
+
+    chosen = candidates[idx].move;
+  }
+
+  game.move({ from: chosen.from, to: chosen.to, promotion: chosen.promotion || 'q' });
+  board.position(game.fen());
+  addMoveToLog(chosen.san, 'ai');
+  updateStatus();
+  showOverlay(false);
+}
+
+// ════════════════════════════════════════════
+// Contrôles
+// ════════════════════════════════════════════
+
+function setColor(color) {
+  humanColor = color;
+  document.getElementById('btn-white').classList.toggle('active', color === 'white');
+  document.getElementById('btn-black').classList.toggle('active', color === 'black');
+}
+
+async function startGame() {
+  if (!modelReady) return;
+
+  game = new Chess();
+  moveHistory = [];
+  gameStarted = true;
+  document.getElementById('moves-scroll').innerHTML = '';
+
+  const orientation = humanColor === 'white' ? 'white' : 'black';
+  board.orientation(orientation);
+  board.position('start');
+
+  updateStatus();
+
+  // Si l'humain joue les noirs, l'IA commence
+  if (humanColor === 'black') {
+    await aiMove();
+  }
+}
+
+function resetGame() {
+  if (!gameStarted) return;
+  game = new Chess();
+  moveHistory = [];
+  board.position('start');
+  document.getElementById('moves-scroll').innerHTML = '';
+  updateStatus();
+
+  if (humanColor === 'black') aiMove();
+}
+
+// ════════════════════════════════════════════
+// Move log
+// ════════════════════════════════════════════
+
+function addMoveToLog(san, who) {
+  moveHistory.push({ san, who });
+  rebuildLog();
+}
+
+function rebuildLog() {
+  const scroll  = document.getElementById('moves-scroll');
+  scroll.innerHTML = '';
+  const aiFirst = humanColor === 'black';
+
+  let i = 0, num = 1;
+  while (i < moveHistory.length) {
+    const row = document.createElement('div');
+    row.className = 'move-row';
+
+    const mn = document.createElement('div');
+    mn.className = 'mn';
+    mn.textContent = num + '.';
+    row.appendChild(mn);
+
+    // Colonne Blancs
+    const w = document.createElement('div');
+    w.className = 'mw' + (aiFirst ? ' ai' : '');
+    w.textContent = moveHistory[i]?.san || '';
+    row.appendChild(w);
+    i++;
+
+    // Colonne Noirs
+    const b = document.createElement('div');
+    b.className = 'mb' + (!aiFirst ? ' ai' : '');
+    b.textContent = moveHistory[i]?.san || '';
+    row.appendChild(b);
+    i++;
+
+    scroll.appendChild(row);
+    num++;
+  }
+  scroll.scrollTop = scroll.scrollHeight;
+}
+
+// ════════════════════════════════════════════
+// UI helpers
+// ════════════════════════════════════════════
+
+function updateStatus() {
+  if (!gameStarted) { setStatus('Configurez et démarrez une partie.', ''); return; }
+
+  if (game.in_checkmate()) {
+    const winner = game.turn() === 'w' ? 'Noirs' : 'Blancs';
+    setStatus(`Échec et mat — Victoire des ${winner} !`, 'over');
+  } else if (game.in_draw()) {
+    setStatus('Match nul', 'over');
+  } else if (game.in_check()) {
+    const turn = game.turn() === humanColor[0] ? 'Votre roi est en échec !' : 'Le roi adverse est en échec.';
+    setStatus(turn, 'active');
+  } else {
+    const yourTurn = game.turn() === humanColor[0];
+    setStatus(yourTurn ? 'Votre tour' : 'Tour du modèle...', yourTurn ? 'active' : 'loading');
+  }
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className   = cls;
+}
+
+function showOverlay(show) {
+  document.getElementById('overlay').classList.toggle('show', show);
+}
+
+// ════════════════════════════════════════════
+// Boot
+// ════════════════════════════════════════════
+init();
+</script>
+</body>
+</html>
